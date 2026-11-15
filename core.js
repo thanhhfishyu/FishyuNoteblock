@@ -388,10 +388,25 @@
     return maxCells >= E;
   }
 
+  // Geometry constants for one configuration.
+  // side  = chord lanes side by side along Z (one layer per floor)
+  // stack = chord lanes stacked in Y (each lane its own layer, 4 blocks apart)
+  function geomInfo(n, top, stack) {
+    const nz = stack ? 1 : n, ny = stack ? n : 1;
+    const floorH = stack ? 4 * n : 4;
+    return {
+      n, nz, ny, top, stack, W: 3 * nz, k: refreshCount(nz), padB: maxPadB(nz), floorH, kR: floorH / 2,
+      hOne: stack ? 4 * (n - 1) + (top ? 3 : 2) : (top ? 3 : 2),
+      off: stack ? 2 : offFor(nz, top),
+      firstCells: stack && n > 1 ? 2 : 1,
+    };
+  }
+
   // Pack the stream of runs (delays) and B's into rows of exactly L cells (last row may be shorter).
-  function packRows(slots, L, k, n) {
-    const padB = maxPadB(n || 1);
-    const items = [{ type: 'run', D: 1 }];
+  // Every Rmax-th break climbs to the next floor (riser) instead of a U-turn.
+  function packRows(slots, L, g, Rmax) {
+    const k = g.k;
+    const items = [{ type: 'run', D: 1, cells: g.firstCells }];
     slots.forEach((s, i) => {
       if (i > 0) items.push({ type: 'run', D: s.rt - slots[i - 1].rt });
       items.push({ type: 'B', slot: i });
@@ -400,8 +415,9 @@
     let idx = 0, carry = null, guard = 0;
     while (idx < items.length) {
       if (++guard > 200000) return null;
+      const riser = !!Rmax && Rmax !== Infinity && (rows.length + 1) % Rmax === 0;
       const row = [];
-      let c = 0, best = null, i = idx;
+      let c = 0, best = null, bestStretch = null, i = idx;
       let finished = false;
       for (;;) {
         if (i >= items.length) { finished = true; break; }
@@ -409,34 +425,55 @@
         if (it.type === 'run') {
           const D = (i === idx && carry != null) ? carry : it.D;
           const E = L - c;
-          let opt = null;
-          if (D - k >= 2) {
-            const T1 = Math.min(D - k - 1, 4 * E);
-            if (endSegFeasible(T1, E, c === 0)) opt = { i, c, rowLen: row.length, D, T1, type: 'R' };
+          if (!it.cells || i === idx && carry != null) {
+            if (riser) {
+              const kk = g.kR;
+              if (D - kk >= 2) {
+                const T1 = Math.min(D - kk - 1, 4 * E);
+                if (endSegFeasible(T1, E, c === 0)) best = { i, c, rowLen: row.length, D, T1, type: 'R', stretch: 0 };
+              }
+              if (D >= 1) {
+                const T1 = Math.max(1, Math.ceil(E / 16));
+                if (endSegFeasible(T1, E, c === 0)) {
+                  const Deff = Math.max(D, T1 + kk + 1);
+                  bestStretch = { i, c, rowLen: row.length, D: Deff, T1, type: 'R', stretch: Deff - D };
+                }
+              }
+            } else {
+              let opt = null;
+              if (D - k >= 2) {
+                const T1 = Math.min(D - k - 1, 4 * E);
+                if (endSegFeasible(T1, E, c === 0)) opt = { i, c, rowLen: row.length, D, T1, type: 'R' };
+              }
+              if (!opt && D - k >= 1 && c > 0 && row.length && row[row.length - 1].type === 'B' && E <= g.padB) {
+                opt = { i, c, rowLen: row.length, D, T1: 0, type: 'B' };
+              }
+              if (!opt && k > 0 && D >= 1 && D <= 4 * k && c > 0 && row.length && row[row.length - 1].type === 'B' && E <= g.padB) {
+                opt = { i, c, rowLen: row.length, D, T1: 0, type: 'BW' };
+              }
+              if (opt) best = opt;
+            }
           }
-          if (!opt && D - k >= 1 && c > 0 && row.length && row[row.length - 1].type === 'B' && E <= padB) {
-            opt = { i, c, rowLen: row.length, D, T1: 0, type: 'B' };
-          }
-          if (!opt && k > 0 && D >= 1 && D <= 4 * k && c > 0 && row.length && row[row.length - 1].type === 'B' && E <= padB) {
-            opt = { i, c, rowLen: row.length, D, T1: 0, type: 'BW' };
-          }
-          if (opt) best = opt;
-          const cells = Math.ceil(D / 4);
+          const cells = (it.cells && !(i === idx && carry != null)) ? it.cells : Math.ceil(D / 4);
           if (c + cells > L) break;
-          row.push({ type: 'run', D }); c += cells; i++;
+          row.push({ type: 'run', D, cells }); c += cells; i++;
         } else {
           if (c + 1 > L) break;
           row.push({ type: 'B', slot: it.slot }); c += 1; i++;
         }
       }
       if (finished) { rows.push({ items: row, len: c, last: true }); break; }
-      if (!best) return null;
-      const r = row.slice(0, best.rowLen);
-      if (best.type === 'R') r.push({ type: 'end', T: best.T1, E: L - best.c, atStart: best.c === 0 });
-      else r.push({ type: 'endB', E: L - best.c });
-      rows.push({ items: r, len: L, last: false, pad: best.type === 'R' ? 0 : L - best.c, refreshDelay: best.type === 'BW' ? best.D : 1 });
-      if (best.type === 'BW') { idx = best.i + 1; carry = null; }
-      else { idx = best.i; carry = best.D - k - best.T1; }
+      const pick = best || bestStretch;
+      if (!pick) return null;
+      const r = row.slice(0, pick.rowLen);
+      if (pick.type === 'R') r.push({ type: 'end', T: pick.T1, E: L - pick.c, atStart: pick.c === 0 });
+      else r.push({ type: 'endB', E: L - pick.c });
+      rows.push({
+        items: r, len: L, last: false, riser, stretch: pick.stretch || 0,
+        pad: pick.type === 'R' ? 0 : L - pick.c, refreshDelay: pick.type === 'BW' ? pick.D : 1,
+      });
+      if (pick.type === 'BW') { idx = pick.i + 1; carry = null; }
+      else { idx = pick.i; carry = pick.D - (riser ? g.kR : k) - pick.T1; }
     }
     return rows;
   }
@@ -448,107 +485,170 @@
   }
 
   function layout(slotsIn, cfg) {
-    const n = cfg.lanes, top = cfg.top;
+    const n = cfg.lanes, top = cfg.top, stack = !!cfg.stack;
+    const g = geomInfo(n, top, stack);
+    const Rmax = cfg.rowsPerFloor || Infinity;
     const assigned = slotsIn.map((s) => assignSlot(s, n, top));
     const dropped = assigned.reduce((a, s) => a + s.dropped, 0);
-    const k = refreshCount(n);
-    const off = offFor(n, top);
     const L = cfg.L;
-    const rows = packRows(slotsIn, L, k, n);
+    const rows = packRows(slotsIn, L, g, Rmax);
     if (!rows) return null;
-    const W = 3 * n;
+    const { nz, ny, W, off, floorH } = g;
 
     const cells = new Map();
     const key = (x, y, z) => x + ',' + y + ',' + z;
     const set = (x, y, z, b) => { cells.set(key(x, y, z), b); };
-    const get = (x, y, z) => cells.get(key(x, y, z));
     const notePos = [];
 
     const rep = (dir, delay) => ({ name: 'minecraft:repeater', props: { delay: String(delay), facing: dir, locked: 'false', powered: 'false' } });
     const opp = { east: 'west', west: 'east', north: 'south', south: 'north' };
     const DUST = () => ({ name: 'minecraft:redstone_wire', props: null });
     const block = (nm) => ({ name: nm, props: null });
+    const torch = (lit) => ({ name: 'minecraft:redstone_torch', props: { lit: lit ? 'true' : 'false' } });
     const noteB = (nt) => ({ name: 'minecraft:note_block', props: { instrument: nt.inst, note: String(nt.click), powered: 'false' } });
-    const zLane = (r, i) => r * W + 3 * i + 1;
+    const zLane = (b, i) => b * W + 3 * i + 1;
+    // vertical tower: block at y0 (input), torches/blocks alternating, ends with block at y0+h
+    const tower = (x, y0, z, h) => {
+      set(x, y0, z, block(LINE));
+      for (let q = 1; q < h; q++) set(x, y0 + q, z, q % 2 ? torch(((q - 1) / 2) % 2 === 0) : block(LINE));
+      set(x, y0 + h, z, block(LINE));
+    };
+
+    const shifts = new Array(slotsIn.length).fill(0);
+    let shiftAcc = 0, stretches = 0, stretchTicks = 0;
+    let floorsUsed = 1;
 
     rows.forEach((row, r) => {
+      const f = Rmax === Infinity ? 0 : Math.floor(r / Rmax);
+      floorsUsed = Math.max(floorsUsed, f + 1);
+      const rl = Rmax === Infinity ? r : r - f * Rmax;
+      const b = f % 2 === 0 ? rl : Rmax - 1 - rl;
+      const sgn = f % 2 === 0 ? 1 : -1;
       const east = r % 2 === 0;
       const ux = (u) => east ? off + u : off + L - 1 - u;
-      const travel = east ? 'east' : 'west';
-      const repDir = opp[travel];
-      // expand row items into a cell list
-      const seq = [];
-      for (const it of row.items) {
-        if (it.type === 'run') { const cnt = Math.ceil(it.D / 4); splitDelay(it.D, cnt).forEach((d) => seq.push({ t: 'R', d })); }
-        else if (it.type === 'B') seq.push({ t: 'B', slot: it.slot });
-        else if (it.type === 'endB') { for (let q = 0; q < it.E; q++) seq.push({ t: 'D' }); }
-        else {
-          const cnt = Math.max(Math.ceil(it.T / 4), it.atStart ? Math.ceil((it.E + 15) / 16) : Math.ceil(it.E / 16));
-          const delays = splitDelay(it.T, cnt);
-          let dust = it.E - cnt;
-          const runs = new Array(cnt).fill(0);
-          for (let j = it.atStart ? 1 : 0; j < cnt && dust > 0; j++) { const v = Math.min(15, dust); runs[j] = v; dust -= v; }
-          for (let j = 0; j < cnt; j++) { for (let q = 0; q < runs[j]; q++) seq.push({ t: 'D' }); seq.push({ t: 'R', d: delays[j] }); }
-        }
-      }
-      for (let i = 0; i < n; i++) {
-        const z = zLane(r, i);
-        seq.forEach((c, u) => {
-          const x = ux(u);
-          set(x, 0, z, block(FLOOR));
-          if (c.t === 'R') set(x, 1, z, rep(repDir, c.d));
-          else if (c.t === 'D') set(x, 1, z, DUST());
+      const repDir = opp[east ? 'east' : 'west'];
+      row.items.forEach((it) => { if (it.type === 'B') shifts[it.slot] = shiftAcc; });
+
+      for (let j = 0; j < ny; j++) {
+        const yb = f * floorH + (stack ? 4 * j : 0);
+        const seq = [];
+        row.items.forEach((it, ii) => {
+          if (it.type === 'run') {
+            let D = it.D;
+            const cnt = it.cells || Math.ceil(D / 4);
+            if (r === 0 && ii === 0 && stack) D = it.D + (g.firstCells > 1 ? 1 : 0) + 2 * (n - 1 - j);
+            splitDelay(D, cnt).forEach((d) => seq.push({ t: 'R', d }));
+          } else if (it.type === 'B') seq.push({ t: 'B', slot: it.slot });
+          else if (it.type === 'endB') { for (let q = 0; q < it.E; q++) seq.push({ t: 'D' }); }
           else {
-            const ln = assigned[c.slot].lanes[i];
-            set(x, 1, z, block(ln.top ? INST[ln.top.inst].block : LINE));
-            if (ln.top) { set(x, 2, z, noteB(ln.top)); notePos.push({ x, y: 2, z, slot: c.slot, nt: ln.top }); }
-            [[ln.a, -1], [ln.b, 1]].forEach(([nt, dz]) => {
-              if (!nt) return;
-              set(x, 0, z + dz, block(INST[nt.inst].block));
-              set(x, 1, z + dz, noteB(nt));
-              notePos.push({ x, y: 1, z: z + dz, slot: c.slot, nt });
-            });
+            const cnt = Math.max(Math.ceil(it.T / 4), it.atStart ? Math.ceil((it.E + 15) / 16) : Math.ceil(it.E / 16));
+            const delays = splitDelay(it.T, cnt);
+            let dust = it.E - cnt;
+            const runs = new Array(cnt).fill(0);
+            for (let q = it.atStart ? 1 : 0; q < cnt && dust > 0; q++) { const v = Math.min(15, dust); runs[q] = v; dust -= v; }
+            for (let q = 0; q < cnt; q++) { for (let w = 0; w < runs[q]; w++) seq.push({ t: 'D' }); seq.push({ t: 'R', d: delays[q] }); }
           }
         });
-      }
-      // U-turn to next row
-      if (!row.last) {
-        const dirX = east ? 1 : -1;
-        const xExit = east ? off + L : off - 1;
-        for (let i = 0; i < n; i++) {
-          const j = n - 1 - i;
-          const z1 = zLane(r, i), z2 = zLane(r + 1, j);
-          const path = uturnLocal(n, i).map(([s, dz, kind]) => [xExit + dirX * s, z1 + dz, kind]);
-          if (path[path.length - 1][1] !== z2) throw new Error('uturn mismatch');
-          const repIdx = new Set(pickRefresh(n, i, row.pad || 0) || []);
-          path.forEach(([x, z], ii) => {
-            set(x, 0, z, block(FLOOR));
-            set(x, 1, z, repIdx.has(ii) ? rep('north', row.refreshDelay || 1) : DUST());
+        for (let i = 0; i < nz; i++) {
+          const z = zLane(b, i);
+          const lane = stack ? j : i;
+          seq.forEach((c, u) => {
+            const x = ux(u);
+            set(x, yb, z, block(FLOOR));
+            if (c.t === 'R') set(x, yb + 1, z, rep(repDir, c.d));
+            else if (c.t === 'D') set(x, yb + 1, z, DUST());
+            else {
+              const ln = assigned[c.slot].lanes[lane];
+              set(x, yb + 1, z, block(ln.top ? INST[ln.top.inst].block : LINE));
+              if (ln.top) { set(x, yb + 2, z, noteB(ln.top)); notePos.push({ x, y: yb + 2, z, slot: c.slot, nt: ln.top }); }
+              [[ln.a, -1], [ln.b, 1]].forEach(([nt, dz]) => {
+                if (!nt) return;
+                set(x, yb, z + dz, block(INST[nt.inst].block));
+                set(x, yb + 1, z + dz, noteB(nt));
+                notePos.push({ x, y: yb + 1, z: z + dz, slot: c.slot, nt });
+              });
+            }
           });
         }
+        if (row.last) continue;
+        const dirX = east ? 1 : -1;
+        const xExit = east ? off + L : off - 1;
+        if (!row.riser) {
+          for (let i = 0; i < nz; i++) {
+            const ie = sgn > 0 ? i : nz - 1 - i;
+            const z1 = zLane(b, i), z2 = zLane(b + sgn, nz - 1 - i);
+            const path = uturnLocal(nz, ie).map(([s, dz, kind]) => [xExit + dirX * s, z1 + sgn * dz, kind]);
+            if (path[path.length - 1][1] !== z2) throw new Error('uturn mismatch');
+            const repIdx = new Set(pickRefresh(nz, ie, row.pad || 0) || []);
+            path.forEach(([x, z], ii) => {
+              set(x, yb, z, block(FLOOR));
+              set(x, yb + 1, z, repIdx.has(ii) ? rep(sgn > 0 ? 'north' : 'south', row.refreshDelay || 1) : DUST());
+            });
+          }
+        } else if (!stack) {
+          for (let i = 0; i < nz; i++) {
+            const z = zLane(b, i);
+            set(xExit, yb, z, block(FLOOR));
+            tower(xExit, yb + 1, z, floorH);
+          }
+        } else {
+          // stacked lanes: each lane climbs in its own column, offset outwards so the towers never touch another lane
+          const z0 = zLane(b, 0);
+          const zt = z0 + sgn * (3 + 2 * j), xt = xExit + dirX * (2 + 2 * j);
+          const yUp = yb + floorH;
+          const pathOut = [];
+          for (let q = 0; q <= 3 + 2 * j; q++) pathOut.push([xExit, z0 + sgn * q]);
+          for (let q = 1; q <= 1 + 2 * j; q++) pathOut.push([xExit + dirX * q, zt]);
+          pathOut.forEach(([x, z]) => { set(x, yb, z, block(FLOOR)); set(x, yb + 1, z, DUST()); });
+          pathOut.forEach(([x, z]) => { set(x, yUp, z, block(FLOOR)); set(x, yUp + 1, z, DUST()); });
+          tower(xt, yb + 1, zt, floorH);
+        }
       }
+      if (!row.last && row.stretch) { shiftAcc += row.stretch; stretches++; stretchTicks += row.stretch; }
     });
 
-    // start: comb + button
-    const sx = off - 1;
-    for (let z = zLane(0, 0); z <= zLane(0, n - 1); z++) { set(sx, 0, z, block(FLOOR)); set(sx, 1, z, DUST()); }
-    set(off - 2, 0, zLane(0, 0), block(FLOOR));
-    set(off - 2, 1, zLane(0, 0), block(LINE));
-    let button;
-    if (top) { button = { x: off - 2, y: 2, z: zLane(0, 0) }; set(button.x, 2, button.z, { name: 'minecraft:stone_button', props: { face: 'floor', facing: 'east', powered: 'false' } }); }
-    else { button = { x: off - 3, y: 1, z: zLane(0, 0) }; set(off - 3, 0, button.z, block(FLOOR)); set(button.x, 1, button.z, { name: 'minecraft:stone_button', props: { face: 'wall', facing: 'west', powered: 'false' } }); }
-    const start = { x: off - 2, y: 1, z: zLane(0, 0) };
+    // start
+    const z0 = zLane(0, 0);
+    let start, button;
+    if (stack) {
+      start = { x: off - 1, y: 1, z: z0 };
+      set(off - 1, 0, z0, block(FLOOR));
+      tower(off - 1, 1, z0, 4 * (n - 1));
+      button = { x: off - 2, y: 1, z: z0 };
+      set(off - 2, 0, z0, block(FLOOR));
+      set(off - 2, 1, z0, { name: 'minecraft:stone_button', props: { face: 'wall', facing: 'west', powered: 'false' } });
+    } else {
+      const sx = off - 1;
+      for (let z = zLane(0, 0); z <= zLane(0, nz - 1); z++) { set(sx, 0, z, block(FLOOR)); set(sx, 1, z, DUST()); }
+      set(off - 2, 0, z0, block(FLOOR));
+      set(off - 2, 1, z0, block(LINE));
+      start = { x: off - 2, y: 1, z: z0 };
+      if (top) { button = { x: off - 2, y: 2, z: z0 }; set(button.x, 2, button.z, { name: 'minecraft:stone_button', props: { face: 'floor', facing: 'east', powered: 'false' } }); }
+      else { button = { x: off - 3, y: 1, z: z0 }; set(off - 3, 0, z0, block(FLOOR)); set(button.x, 1, button.z, { name: 'minecraft:stone_button', props: { face: 'wall', facing: 'west', powered: 'false' } }); }
+    }
+
+    // normalise coordinates to start at 0
+    let mnx = Infinity, mny = Infinity, mnz = Infinity;
+    cells.forEach((_, kk) => { const [x, y, z] = kk.split(',').map(Number); if (x < mnx) mnx = x; if (y < mny) mny = y; if (z < mnz) mnz = z; });
+    let finalCells = cells;
+    if (mnx || mny || mnz) {
+      finalCells = new Map();
+      cells.forEach((b, kk) => { const [x, y, z] = kk.split(',').map(Number); finalCells.set((x - mnx) + ',' + (y - mny) + ',' + (z - mnz), b); });
+      notePos.forEach((p) => { p.x -= mnx; p.y -= mny; p.z -= mnz; });
+      [start, button].forEach((p) => { p.x -= mnx; p.y -= mny; p.z -= mnz; });
+    }
+    const get = (x, y, z) => finalCells.get(x + ',' + y + ',' + z);
 
     // dust shapes
     const dirs = [['north', 0, -1], ['south', 0, 1], ['west', -1, 0], ['east', 1, 0]];
-    cells.forEach((b, kk) => {
+    finalCells.forEach((b, kk) => {
       if (b.name !== 'minecraft:redstone_wire') return;
       const [x, y, z] = kk.split(',').map(Number);
       const con = {};
       for (const [dn, dx, dz] of dirs) {
         const nb = get(x + dx, y, z + dz);
         let c = false;
-        if (nb && nb.name === 'minecraft:redstone_wire') c = true;
+        if (nb && (nb.name === 'minecraft:redstone_wire' || nb.name === 'minecraft:redstone_torch')) c = true;
         if (nb && nb.name === 'minecraft:repeater') { const f = nb.props.facing; c = dx !== 0 ? (f === 'east' || f === 'west') : (f === 'north' || f === 'south'); }
         con[dn] = c;
       }
@@ -557,58 +657,75 @@
       b.props = { east: con.east ? 'side' : 'none', north: con.north ? 'side' : 'none', power: '0', south: con.south ? 'side' : 'none', west: con.west ? 'side' : 'none' };
     });
 
-    // bounds
-    let maxX = 0, maxZ = 0;
-    cells.forEach((_, kk) => { const [x, , z] = kk.split(',').map(Number); if (x > maxX) maxX = x; if (z > maxZ) maxZ = z; });
-    let maxY = 0;
-    cells.forEach((_, kk) => { const y = +kk.split(',')[1]; if (y > maxY) maxY = y; });
+    let maxX = 0, maxY = 0, maxZ = 0;
+    finalCells.forEach((_, kk) => { const [x, y, z] = kk.split(',').map(Number); if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z; });
     const size = { x: maxX + 1, y: maxY + 1, z: maxZ + 1 };
-
     const mats = {};
-    cells.forEach((b) => { const nm = b.name.replace('minecraft:', ''); mats[nm] = (mats[nm] || 0) + 1; });
+    finalCells.forEach((b) => { const nm = b.name.replace('minecraft:', ''); mats[nm] = (mats[nm] || 0) + 1; });
 
-    return { cells, size, rows: rows.length, lanes: n, k, dropped, notePos, mats, off, L, start, button, assigned };
+    return { cells: finalCells, size, rows: rows.length, floors: floorsUsed, lanes: n, stack, k: g.k, dropped, notePos, mats, off, L, start, button, assigned, shifts, stretches, stretchTicks };
   }
 
   // Try several row lengths and pick the best one that fits the limits.
-  function sizeFor(rows, n, L, top) {
-    const off = offFor(n, top);
-    if (rows.length === 1) return { x: off + rows[0].len, z: 3 * n };
-    return { x: off + L + 2 * n - 1 + uExtra(n), z: rows.length * 3 * n };
-  }
   function autoLayout(slots, o) {
-    const n = o.lanes;
-    const k = refreshCount(n);
-    const off = offFor(n, o.top);
-    const extra = off + 2 * n - 1 + uExtra(n);
+    const n = o.lanes, top = o.top, stack = !!o.stack;
+    const g = geomInfo(n, top, stack);
     const minL = 12;
-    let need = 2 + slots.length;
+    let need = 2 + g.firstCells + slots.length;
     for (let i = 1; i < slots.length; i++) need += Math.ceil((slots[i].rt - slots[i - 1].rt) / 4);
+    const base = { lanes: n, top, stack };
     if (o.mode === 'line') {
-      const lay = layout(slots, { lanes: n, top: o.top, L: need + 4 });
-      if (lay) lay.fitsZ = true;
+      const lay = layout(slots, { ...base, L: need + 4 });
+      if (lay) lay.fits = true;
       return lay;
     }
-    const maxL = Math.max(minL, Math.min(need + 4, (o.maxX || 100000) - extra));
-    let bestL = -1, bestScore = Infinity, bestFits = false;
-    const tryL = (L) => {
-      const rows = packRows(slots, L, k, n);
-      if (!rows) return;
-      const s = sizeFor(rows, n, L, o.top);
-      if (o.maxX && s.x > o.maxX) return;
-      const fitsZ = !o.maxZ || s.z <= o.maxZ;
-      const score = o.mode === 'square'
-        ? Math.max(s.x, s.z) * 1e6 + s.x * s.z
-        : (fitsZ ? 0 : 1e12) + s.x * s.z * 10 + s.x;
-      if (score < bestScore) { bestScore = score; bestL = L; bestFits = fitsZ; }
-    };
-    const step = Math.max(1, Math.floor((maxL - minL) / 300));
-    for (let L = minL; L <= maxL; L += step) tryL(L);
-    if (bestL < 0) return null;
-    for (let L = Math.max(minL, bestL - step); L <= Math.min(maxL, bestL + step); L++) tryL(L);
-    const lay = layout(slots, { lanes: n, top: o.top, L: bestL });
-    if (lay) lay.fitsZ = !o.maxZ || lay.size.z <= o.maxZ;
-    return lay;
+    const extraX = g.off + 2 * g.nz - 1 + uExtra(g.nz);
+    const cands = [];
+    if (o.mode === 'square') {
+      const maxL = Math.max(minL, need + 4);
+      const step = Math.max(1, Math.floor((maxL - minL) / 300));
+      for (let L = minL; L <= maxL; L += step) {
+        const rows = packRows(slots, L, g, Infinity);
+        if (!rows) continue;
+        const X = rows.length === 1 ? g.off + rows[0].len : L + extraX, Z = rows.length * g.W;
+        cands.push({ L, R: Infinity, score: Math.max(X, Z) * 1e6 + X * Z });
+      }
+    } else {
+      const maxX = o.maxX || 64, maxZ = o.maxZ || 64, maxY = o.maxY || 64;
+      if (maxY < g.hOne) return { error: `Chiều cao tối thiểu cho kiểu mạch này là ${g.hOne} khối.` };
+      const F = 1 + Math.floor((maxY - g.hOne) / g.floorH);
+      const riserZ = stack ? 2 * n + 1 : 0;
+      const maxL = Math.max(minL, Math.min(need + 4, maxX - extraX));
+      if (maxX - extraX < minL) return { error: `Chiều dài tối thiểu là ${minL + extraX} khối.` };
+      const step = Math.max(1, Math.floor((maxL - minL) / 200));
+      for (let L = minL; L <= maxL; L += step) {
+        for (const R of new Set([Math.floor((maxZ - riserZ * 2) / g.W), Math.floor((maxZ - riserZ) / g.W), Math.floor(maxZ / g.W)])) {
+          if (R < 1) continue;
+          const rows = packRows(slots, L, g, F > 1 ? R : Infinity);
+          if (!rows) continue;
+          const fl = F > 1 ? Math.ceil(rows.length / R) : 1;
+          if (fl > F || (F === 1 && rows.length > R)) continue;
+          const stretch = rows.reduce((a, r) => a + (r.stretch || 0), 0);
+          const sides = stack ? (fl >= 3 ? 2 : fl - 1) : 0;
+          const X = (rows.length === 1 ? g.off + rows[0].len : L + extraX) + sides * 2 * n;
+          const Z = Math.min(rows.length, R) * g.W + sides * (2 * n + 1);
+          const Y = (fl - 1) * g.floorH + g.hOne;
+          if (X > maxX || Z > maxZ || Y > maxY) continue;
+          cands.push({ L, R: F > 1 ? R : Infinity, score: fl * 1e12 + stretch * 1e9 + X * Z });
+        }
+      }
+    }
+    cands.sort((a, b) => a.score - b.score);
+    const seen = new Set();
+    for (const c of cands.slice(0, 60)) {
+      const kk = c.L + ':' + c.R; if (seen.has(kk)) continue; seen.add(kk);
+      const lay = layout(slots, { ...base, L: c.L, rowsPerFloor: c.R });
+      if (!lay) continue;
+      if (o.mode === 'limit' && (lay.size.x > (o.maxX || 64) || lay.size.z > (o.maxZ || 64) || lay.size.y > (o.maxY || 64))) continue;
+      lay.fits = true;
+      return lay;
+    }
+    return o.mode === 'limit' ? { error: 'Bài quá dài so với khu vực này. Hãy tăng dài, rộng hoặc cao.' } : null;
   }
 
   // ---------------------------------------------------------------- simulator (verification)
@@ -616,85 +733,118 @@
     const { cells } = lay;
     const get = (x, y, z) => cells.get(x + ',' + y + ',' + z);
     const DIR = { north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] };
-    const isSolid = (b) => b && !['minecraft:redstone_wire', 'minecraft:repeater', 'minecraft:note_block', 'minecraft:stone_button', 'minecraft:glass', 'minecraft:glowstone'].includes(b.name);
+    const NONSOLID = ['minecraft:redstone_wire', 'minecraft:repeater', 'minecraft:note_block', 'minecraft:stone_button', 'minecraft:glass', 'minecraft:glowstone', 'minecraft:redstone_torch'];
+    const isSolid = (b) => b && !NONSOLID.includes(b.name);
     const hits = new Map();
+    const times = new Map();
     const errors = [];
     const buckets = [];
-    const strongDone = new Set(), weakDone = new Set(), dustDone = new Set(), repDone = new Set();
+    const done = { strong: new Set(), weak: new Set(), dust: new Set(), repin: new Set(), toff: new Set(), ton: new Set() };
     const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
     const push = (t, kind, x, y, z, extra) => { (buckets[t] || (buckets[t] = [])).push({ t, kind, x, y, z, extra }); };
+    const hit = (id, t) => { if (!hits.has(id)) hits.set(id, []); hits.get(id).push(t); };
     push(0, 'strong', lay.start.x, lay.start.y, lay.start.z);
     let guard = 0;
     for (let bt = 0; bt < buckets.length; bt++) {
-     const bucket = buckets[bt];
-     if (!bucket) continue;
-     for (let bi = 0; bi < bucket.length; bi++) {
-      if (++guard > 5e6) { errors.push('loop'); break; }
-      const e = bucket[bi];
-      const { x, y, z, t } = e;
-      const id = x + ',' + y + ',' + z;
-      const b = get(x, y, z);
-      if (e.kind === 'strong' || e.kind === 'weak') {
-        const set = e.kind === 'strong' ? strongDone : weakDone;
-        if (set.has(id)) continue; set.add(id);
-        for (const [dx, dy, dz] of N6) {
-          const nb = get(x + dx, y + dy, z + dz);
-          if (!nb) continue;
-          const nid = (x + dx) + ',' + (y + dy) + ',' + (z + dz);
-          if (nb.name === 'minecraft:note_block') { if (!hits.has(nid)) hits.set(nid, []); hits.get(nid).push(t); }
-          if (nb.name === 'minecraft:redstone_wire' && e.kind === 'strong' && dy === 0) push(t, 'dust', x + dx, y, z + dz, 15);
-          if (nb.name === 'minecraft:repeater' && dy === 0) { const f = DIR[nb.props.facing]; if (f[0] === -dx && f[2] === -dz) push(t, 'repin', x + dx, y, z + dz); }
+      const bucket = buckets[bt];
+      if (!bucket) continue;
+      for (let bi = 0; bi < bucket.length; bi++) {
+        if (++guard > 5e6) { errors.push('loop'); break; }
+        const e = bucket[bi];
+        const { x, y, z, t } = e;
+        const id = x + ',' + y + ',' + z;
+        const b = get(x, y, z);
+        if (done[e.kind].has(id)) continue; done[e.kind].add(id);
+        if (e.kind === 'strong' || e.kind === 'weak') {
+          for (const [dx, dy, dz] of N6) {
+            const nb = get(x + dx, y + dy, z + dz);
+            if (!nb) continue;
+            const nid = (x + dx) + ',' + (y + dy) + ',' + (z + dz);
+            if (nb.name === 'minecraft:note_block') hit(nid, t);
+            if (nb.name === 'minecraft:redstone_wire' && e.kind === 'strong') push(t, 'dust', x + dx, y + dy, z + dz, 15);
+            if (nb.name === 'minecraft:repeater' && dy === 0) { const f = DIR[nb.props.facing]; if (f[0] === -dx && f[2] === -dz) push(t, 'repin', x + dx, y, z + dz); }
+            if (nb.name === 'minecraft:redstone_torch' && dy === 1) { if (nb.props.lit === 'true') push(t + 1, 'toff', x, y + 1, z); else errors.push('unlit torch on powered block ' + nid); }
+          }
+        } else if (e.kind === 'toff') {
+          times.set(id, t);
+          // the block above loses power -> a torch on top of it turns on
+          const ab = get(x, y + 1, z), tt = get(x, y + 2, z);
+          if (isSolid(ab) && tt && tt.name === 'minecraft:redstone_torch' && tt.props.lit === 'false') push(t + 1, 'ton', x, y + 2, z);
+        } else if (e.kind === 'ton') {
+          times.set(id, t);
+          if (isSolid(get(x, y + 1, z))) push(t, 'strong', x, y + 1, z);
+          for (const [dx, dy, dz] of N6) {
+            if (dy !== 0) continue;
+            const nb = get(x + dx, y, z + dz);
+            if (nb && ['minecraft:redstone_wire', 'minecraft:repeater', 'minecraft:note_block'].includes(nb.name)) errors.push('torch next to component ' + id);
+          }
+        } else if (e.kind === 'dust') {
+          if (!b || b.name !== 'minecraft:redstone_wire') continue;
+          times.set(id, t);
+          const s = e.extra; if (s <= 0) { errors.push('dust too long at ' + id); continue; }
+          if (isSolid(get(x, y - 1, z))) push(t, 'weak', x, y - 1, z);
+          const pr = b.props;
+          for (const dn of ['north', 'south', 'east', 'west']) {
+            if (pr[dn] !== 'side') continue;
+            const [dx, , dz] = DIR[dn];
+            const nb = get(x + dx, y, z + dz);
+            if (!nb) continue;
+            if (nb.name === 'minecraft:redstone_wire') push(t, 'dust', x + dx, y, z + dz, s - 1);
+            else if (nb.name === 'minecraft:repeater') { const f = DIR[nb.props.facing]; if (f[0] === -dx && f[2] === -dz) push(t, 'repin', x + dx, y, z + dz); }
+            else if (isSolid(nb)) push(t, 'weak', x + dx, y, z + dz);
+            else if (nb.name === 'minecraft:note_block') hit((x + dx) + ',' + y + ',' + (z + dz), t);
+          }
+        } else if (e.kind === 'repin') {
+          const f = DIR[b.props.facing];
+          const ox = x - f[0], oz = z - f[2];
+          const nb = get(ox, y, oz);
+          const tt = t + Number(b.props.delay);
+          times.set(id, tt);
+          if (!nb) { errors.push('repeater into air ' + id); continue; }
+          if (nb.name === 'minecraft:redstone_wire') push(tt, 'dust', ox, y, oz, 15);
+          else if (nb.name === 'minecraft:repeater') { const g2 = DIR[nb.props.facing]; if (g2[0] === f[0] && g2[2] === f[2]) push(tt, 'repin', ox, y, oz); }
+          else if (nb.name === 'minecraft:note_block') hit(ox + ',' + y + ',' + oz, tt);
+          else if (isSolid(nb)) push(tt, 'strong', ox, y, oz);
         }
-      } else if (e.kind === 'dust') {
-        if (!b || b.name !== 'minecraft:redstone_wire') continue;
-        if (dustDone.has(id)) continue; dustDone.add(id);
-        const s = e.extra; if (s <= 0) { errors.push('dust too long at ' + id); continue; }
-        if (isSolid(get(x, y - 1, z))) push(t, 'weak', x, y - 1, z);
-        const pr = b.props;
-        for (const dn of ['north', 'south', 'east', 'west']) {
-          if (pr[dn] !== 'side') continue;
-          const [dx, , dz] = DIR[dn];
-          const nb = get(x + dx, y, z + dz);
-          if (!nb) continue;
-          if (nb.name === 'minecraft:redstone_wire') push(t, 'dust', x + dx, y, z + dz, s - 1);
-          else if (nb.name === 'minecraft:repeater') { const f = DIR[nb.props.facing]; if (f[0] === -dx && f[2] === -dz) push(t, 'repin', x + dx, y, z + dz); }
-          else if (isSolid(nb)) push(t, 'weak', x + dx, y, z + dz);
-          else if (nb.name === 'minecraft:note_block') { const nid = (x + dx) + ',' + y + ',' + (z + dz); if (!hits.has(nid)) hits.set(nid, []); hits.get(nid).push(t); }
-        }
-      } else if (e.kind === 'repin') {
-        if (repDone.has(id)) continue; repDone.add(id);
-        const f = DIR[b.props.facing];
-        const ox = x - f[0], oz = z - f[2];
-        const nb = get(ox, y, oz);
-        const tt = t + Number(b.props.delay);
-        if (!nb) { errors.push('repeater into air ' + id); continue; }
-        if (nb.name === 'minecraft:redstone_wire') push(tt, 'dust', ox, y, oz, 15);
-        else if (nb.name === 'minecraft:repeater') { const g = DIR[nb.props.facing]; if (g[0] === f[0] && g[2] === f[2]) push(tt, 'repin', ox, y, oz); }
-        else if (nb.name === 'minecraft:note_block') { const nid = ox + ',' + y + ',' + oz; if (!hits.has(nid)) hits.set(nid, []); hits.get(nid).push(tt); }
-        else if (isSolid(nb)) push(tt, 'strong', ox, y, oz);
       }
-     }
     }
-    return { hits, errors };
+    // rest state: lit torches power the block above them; nothing sensitive may touch that block or the torch
+    cells.forEach((b, kk) => {
+      if (b.name !== 'minecraft:redstone_torch' || b.props.lit !== 'true') return;
+      const [x, y, z] = kk.split(',').map(Number);
+      for (const [dx, dy, dz] of N6) {
+        if (dy === -1) continue;
+        const nb = get(x + dx, y + dy, z + dz);
+        if (nb && ['minecraft:redstone_wire', 'minecraft:repeater', 'minecraft:note_block'].includes(nb.name)) errors.push('lit torch touches component ' + kk);
+      }
+      for (const [dx, dy, dz] of N6) {
+        const nb = get(x + dx, y + 1 + dy, z + dz);
+        if (dy === -1) continue;
+        if (nb && ['minecraft:redstone_wire', 'minecraft:repeater', 'minecraft:note_block'].includes(nb.name)) errors.push('block over lit torch touches component ' + kk);
+      }
+    });
+    return { hits, errors, times };
   }
 
   function verify(lay, slots) {
-    const { hits, errors } = simulate(lay);
+    const sim = simulate(lay);
+    const { hits, errors } = sim;
     let offset = null, bad = 0, missing = 0, multi = 0, blocked = 0;
+    const sh = lay.shifts || [];
     for (const np of lay.notePos) {
       const id = np.x + ',' + np.y + ',' + np.z;
       const h = hits.get(id);
       if (!h || !h.length) { missing++; continue; }
       const uniq = [...new Set(h)];
       if (uniq.length > 1) multi++;
-      const want = slots[np.slot].rt;
+      const want = slots[np.slot].rt + (sh[np.slot] || 0);
       if (offset == null) offset = uniq[0] - want;
       if (uniq[0] - want !== offset) bad++;
       if (lay.cells.get(np.x + ',' + (np.y + 1) + ',' + np.z)) blocked++;
     }
     const placed = new Set(lay.notePos.map((np) => np.x + ',' + np.y + ',' + np.z));
     const extraHits = [...hits.keys()].filter((id) => !placed.has(id)).length;
-    return { ok: !errors.length && !bad && !missing && !multi && !blocked, errors, bad, missing, multi, blocked, extraHits, offset };
+    return { ok: !errors.length && !bad && !missing && !multi && !blocked && !extraHits, errors, bad, missing, multi, blocked, extraHits, offset, sim };
   }
 
   // ---------------------------------------------------------------- NBT writer
@@ -820,6 +970,6 @@
     return writeNbt('Schematic', v);
   }
 
-  const api = { INST, INST_ORDER, GM_FAMILY, parseMidi, parseNbs, bestOctave, outOfRangeCount, buildSlots, lanesNeeded, assignSlot, layout, autoLayout, packRows, simulate, verify, toLitematic, toSchem, stateString, FLOOR, LINE };
+  const api = { INST, INST_ORDER, GM_FAMILY, parseMidi, parseNbs, bestOctave, outOfRangeCount, buildSlots, lanesNeeded, assignSlot, layout, autoLayout, packRows, geomInfo, simulate, verify, toLitematic, toSchem, stateString, FLOOR, LINE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.NB = api;
 })(typeof window !== 'undefined' ? window : globalThis);

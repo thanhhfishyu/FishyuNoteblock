@@ -14,7 +14,10 @@ Mọi thứ chạy ngay trong trình duyệt, file nhạc không được tải 
 - Chỉnh tốc độ bài, dịch tông, bật/tắt từng track
 - 1–3 làn song song (tối đa 9 nốt kêu cùng lúc), có/không có note block tầng trên
 - Xếp mạch: gập rắn gọn gần vuông, giới hạn dài × rộng, hoặc một hàng thẳng
-- Xem trước mạch theo từng lớp, nghe thử, bảng vật liệu
+- Vừa khu vực dài × rộng × cao: bài dài sẽ tự leo lên tầng trên bằng cột đuốc redstone
+- Hợp âm có thể xếp các làn nằm cạnh nhau hoặc chồng lên nhau theo chiều cao
+- Xem trước 3D (xoay, phóng to, di chuyển) và **mô phỏng trong game**: redstone sáng dần, note block kêu và hiện nốt nhạc
+- Xem trước 2D theo từng lớp, nghe thử, bảng vật liệu
 - Mạch được kiểm tra bằng mô phỏng redstone trước khi xuất
 
 ## Dùng
@@ -23,4 +26,4 @@ Mở `index.html` trên trình duyệt (hoặc trang GitHub Pages của repo nà
 
 ## Phát triển
 
-Mã chính nằm ở `core.js` (không phụ thuộc DOM) và `index.src.html` (giao diện). Chạy `python3 build.py` để gộp thành `index.html` một file.
+Mã chính nằm ở `core.js` (không phụ thuộc DOM), `v3d.js` (xem 3D + mô phỏng) và `index.src.html` (giao diện). Chạy `python3 build.py` để gộp thành `index.html` một file. `three.min.js` (three.js r128, MIT) là bản dự phòng khi không tải được từ CDN.

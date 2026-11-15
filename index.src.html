@@ -68,6 +68,11 @@
   .hidden { display: none !important; }
   .progress { height: 6px; background: #2a2e37; border-radius: 99px; overflow: hidden; margin-top: 8px; }
   .progress div { height: 100%; width: 0; background: var(--acc); }
+  #v3wrap { position: relative; height: 560px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1a2230; touch-action: none; }
+  #v3wrap canvas { width: 100%; height: 100%; }
+  #v3msg { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  #v3hint { position: absolute; left: 8px; bottom: 6px; color: #c9d1dc; background: #0008; padding: 3px 7px; border-radius: 5px; pointer-events: none; }
+  @media (max-width: 820px) { #v3wrap { height: 420px; } }
   footer { text-align: center; color: var(--muted); font-size: 12.5px; padding: 10px 20px 30px; }
   a { color: var(--acc); }
 </style>
@@ -111,15 +116,20 @@
       <label class="f"><span>Note block phía trên</span>
         <select id="top"><option value="1">Có (cao 3 khối, chứa nhiều nốt hơn)</option><option value="0">Không (cao 2 khối)</option></select>
       </label>
-      <label class="f"><span>Kiểu xếp</span>
-        <select id="mode"><option value="square">Gập rắn, gọn gần vuông</option><option value="limit">Gập rắn, giới hạn dài × rộng</option><option value="line">Một hàng thẳng</option></select>
+      <label class="f"><span>Cách xếp hợp âm</span>
+        <select id="stack"><option value="0">Các làn nằm cạnh nhau</option><option value="1">Các làn chồng lên nhau (tiết kiệm diện tích)</option></select>
       </label>
-      <label class="f limitOnly"><span>Dài tối đa (X)</span><input type="number" id="maxX" min="16" value="64"></label>
-      <label class="f limitOnly"><span>Rộng tối đa (Z)</span><input type="number" id="maxZ" min="3" value="64"></label>
+      <label class="f"><span>Kiểu xếp</span>
+        <select id="mode"><option value="square">Gập rắn, gọn gần vuông</option><option value="limit">Vừa khu vực dài × rộng × cao</option><option value="line">Một hàng thẳng</option></select>
+      </label>
+      <label class="f limitOnly"><span>Dài tối đa (X)</span><input type="number" id="maxX" min="16" value="40"></label>
+      <label class="f limitOnly"><span>Rộng tối đa (Z)</span><input type="number" id="maxZ" min="3" value="30"></label>
+      <label class="f limitOnly"><span>Cao tối đa (Y)</span><input type="number" id="maxY" min="2" value="12"></label>
       <label class="f"><span>Phiên bản Minecraft (Java)</span>
         <select id="ver"></select>
       </label>
     </div>
+    <div class="muted small limitOnly" style="margin-top:10px">Nếu bài quá dài so với diện tích, mạch tự leo lên tầng trên (bằng cột đuốc redstone) và chạy tiếp. Mỗi tầng cao 4 khối; với kiểu "chồng lên nhau" mỗi tầng cao 4 × số làn.</div>
   </section>
 
   <section class="card hidden" id="resultCard">
@@ -135,16 +145,28 @@
     <div class="muted small hidden" id="zipNote" style="margin-top:8px">Trên trang Claude, file được tải về dạng <b>.zip</b>: giải nén ra để lấy file <span class="mono">.litematic</span> / <span class="mono">.schem</span>. Bản trên GitHub Pages thì tải thẳng.</div>
     <div class="progress"><div id="prog"></div></div>
 
-    <div class="row" style="margin-top:18px; justify-content: space-between">
-      <div class="seg" id="layerSeg">
-        <button data-l="all" class="on">Nhìn từ trên</button>
-        <button data-l="0">Lớp y=0</button>
-        <button data-l="1">Lớp y=1</button>
-        <button data-l="2" id="layer2Btn">Lớp y=2</button>
+    <div class="row" style="margin-top:18px">
+      <div class="seg" id="viewSeg"><button data-v="3d" class="on">3D + mô phỏng</button><button data-v="2d">2D theo lớp</button></div>
+    </div>
+    <div id="pane3d">
+      <div class="row small" style="margin-top:10px; gap:10px">
+        <button id="simPlay" class="pri">▶ Mô phỏng trong game</button>
+        <label class="row muted" style="gap:6px">Tốc độ <select id="simSpeed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+        <label class="row muted" style="gap:6px"><input type="checkbox" id="simFollow" checked> Camera đi theo</label>
+        <label class="row muted" style="gap:6px"><input type="checkbox" id="simSound" checked> Âm thanh</label>
+        <button id="camReset">Đặt lại góc nhìn</button>
+        <span class="muted" id="simInfo"></span>
       </div>
+      <div id="v3wrap"><canvas id="v3"></canvas><div id="v3msg" class="muted small"></div>
+        <div id="v3hint" class="small">Kéo chuột trái: xoay · chuột phải hoặc Shift+kéo: di chuyển · cuộn: phóng to · điện thoại: 1 ngón xoay, 2 ngón di chuyển/phóng to</div></div>
+    </div>
+    <div id="pane2d" class="hidden">
+    <div class="row" style="margin-top:12px; justify-content: space-between">
+      <select id="layerSel"><option value="all">Nhìn từ trên</option></select>
       <label class="row small muted" style="gap:8px">Thu phóng <input type="range" id="zoom" min="4" max="28" value="14"></label>
     </div>
     <div id="viewWrap"><canvas id="cv"></canvas></div>
+    </div>
     <div class="legend" id="legend"></div>
   </section>
 
@@ -160,6 +182,7 @@
         <li>Đặt sát mặt đất bằng phẳng: khối cát (trống snare) cần có khối đỡ bên dưới, không thì sẽ rơi.</li>
         <li>Phía trên mọi note block phải là <b>không khí</b>, nên đừng đặt mạch sát trần.</li>
         <li>Chơi creative thì dán thẳng (paste). Chơi survival thì xây theo hình mờ: số trên mỗi note block là <b>số lần bấm chuột phải</b> để chỉnh nốt.</li>
+        <li>Mạch nhiều tầng: các tầng nối với nhau bằng <b>cột đuốc redstone</b> ở mép. Bạn có thể xây sàn nhà xen giữa các tầng, miễn là không chạm vào cột đuốc và phía trên note block vẫn trống.</li>
         <li>Bấm <b>nút đá</b> ở đầu mạch (ô viền xanh lá trong hình xem trước) để phát nhạc.</li>
         <li>Dùng WorldEdit thì lấy file <span class="mono">.schem</span>: <span class="mono">//schem load tên</span> rồi <span class="mono">//paste</span>.</li>
       </ol>
@@ -207,6 +230,7 @@
       $('status').innerHTML = `<span style="color:var(--bad)">Không đọc được file: ${esc(err.message)}</span>`;
       return;
     }
+    lastKey = '';
     fileName = f.name.replace(/\.[^.]+$/, '').replace(/[^\w\-. ]+/g, '_') || 'song';
     const n = song.parts.reduce((a, p) => a + p.notes.length, 0);
     if (!n) { $('status').innerHTML = '<span style="color:var(--bad)">File không có nốt nhạc nào.</span>'; return; }
@@ -260,15 +284,20 @@
 
   $('tempo').oninput = () => { $('tempoN').value = $('tempo').value; recompute(); };
   $('tempoN').onchange = () => { $('tempo').value = $('tempoN').value; recompute(); };
-  ['transpose', 'lanes', 'top', 'mode', 'maxX', 'maxZ', 'ver'].forEach((id) => { $(id).onchange = recompute; });
+  ['transpose', 'lanes', 'top', 'stack', 'mode', 'maxX', 'maxZ', 'maxY', 'ver'].forEach((id) => { $(id).onchange = recompute; });
   const syncMode = () => document.querySelectorAll('.limitOnly').forEach((el) => el.classList.toggle('hidden', $('mode').value !== 'limit'));
   $('mode').addEventListener('change', syncMode); syncMode();
 
   // ------------------------------------------------ compute
   let timer = null;
   function recompute() { clearTimeout(timer); timer = setTimeout(compute, 150); }
+  let lastKey = '';
   function compute() {
     if (!song) return;
+    const key = JSON.stringify([song.parts.map((p) => [p.enabled, p.instrument, p.octave, p.rangeMode]),
+      ...['tempoN', 'transpose', 'lanes', 'top', 'stack', 'mode', 'maxX', 'maxZ', 'maxY'].map((id) => $(id).value)]);
+    if (key === lastKey && result) return;
+    lastKey = key;
     stop();
     const tempo = Math.max(10, Math.min(400, +$('tempoN').value || 100));
     const { slots, folded, swapped, totalNotes } = NB.buildSlots(song, { tempo, transpose: +$('transpose').value || 0 });
@@ -278,43 +307,47 @@
     let need = 1;
     slots.forEach((s) => { need = Math.max(need, NB.lanesNeeded(s.notes, top)); });
     if (lanes === 'auto') lanes = Math.min(3, need); else lanes = +lanes;
-    const opts = { lanes, top, mode: $('mode').value, maxX: $('mode').value === 'limit' ? +$('maxX').value : 0, maxZ: $('mode').value === 'limit' ? +$('maxZ').value : 0 };
+    const lim = $('mode').value === 'limit';
+    const opts = { lanes, top, stack: $('stack').value === '1', mode: $('mode').value, maxX: lim ? +$('maxX').value : 0, maxZ: lim ? +$('maxZ').value : 0, maxY: lim ? +$('maxY').value : 0 };
     const lay = NB.autoLayout(slots, opts);
-    if (!lay) {
+    if (!lay || lay.error) {
       $('stats').innerHTML = '';
-      $('warns').innerHTML = `<div class="badge bad">Không xếp được mạch với chiều dài này. Hãy tăng "Dài tối đa" lên.</div>`;
-      result = null; draw(); return;
+      $('warns').innerHTML = `<div class="badge bad">${esc(lay && lay.error ? lay.error : 'Không xếp được mạch với kích thước này. Hãy tăng chiều dài.')}</div>`;
+      result = null; draw(); update3d(); return;
     }
     const v = NB.verify(lay, slots);
     result = { slots, lay, v, folded, swapped, totalNotes, need, tempo };
-    const dur = slots[slots.length - 1].rt / 10;
+    const dur = (slots[slots.length - 1].rt + (lay.stretchTicks || 0)) / 10;
     const nb = lay.notePos.length;
     const stat = (k, val, cls = '') => `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${val}</div></div>`;
     $('stats').innerHTML =
       stat('Kích thước (X × Y × Z)', `${lay.size.x} × ${lay.size.y} × ${lay.size.z}`) +
       stat('Thời lượng', `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, '0')}`) +
       stat('Note block', nb) +
-      stat('Số hàng · số làn', `${lay.rows} · ${lay.lanes}`) +
+      stat('Hàng · làn · tầng', `${lay.rows} · ${lay.lanes} · ${lay.floors}`) +
       stat('Nốt bị lược (quá dày)', lay.dropped, 'small') +
       stat('Kiểm tra mạch', v.ok ? '<span style="color:var(--acc)">✓ Đúng nhịp</span>' : '<span style="color:var(--bad)">✗ Lỗi</span>', 'small');
     const w = [];
     if (lay.dropped) w.push(`<span class="badge warn">${lay.dropped} nốt bị lược vì có hơn ${lay.lanes * (top ? 3 : 2)} nốt kêu cùng lúc. Bài này cần ${need} làn${need > 3 ? ' (tối đa 3)' : ''}; giữ lại nốt cao nhất, thấp nhất và trống chính.</span>`);
     if (folded) w.push(`<span class="badge">${folded} nốt được gập quãng tám cho vừa note block</span>`);
     if (swapped) w.push(`<span class="badge">${swapped} nốt được đổi nhạc cụ để giữ đúng cao độ</span>`);
-    if (lay.fitsZ === false) w.push(`<span class="badge warn">Chiều rộng ${lay.size.z} vượt giới hạn ${opts.maxZ}. Hãy tăng chiều dài hoặc chiều rộng.</span>`);
+    if (lay.stretches) w.push(`<span class="badge warn">${lay.stretches} chỗ chuyển tầng bị chậm thêm tổng cộng ${(lay.stretchTicks / 10).toFixed(1)} giây vì cột đuốc cần thời gian; các đoạn khác vẫn đúng nhịp.</span>`);
+    if (lay.floors > 1) w.push(`<span class="badge">Mạch có ${lay.floors} tầng, nối bằng cột đuốc redstone ở mép mạch</span>`);
     if (!v.ok) w.push(`<span class="badge bad">Mô phỏng phát hiện lỗi mạch, đừng dùng file này và báo lại cho mình nhé.</span>`);
     if (lay.mats.sand) w.push(`<span class="badge">Có ${lay.mats.sand} khối cát: đặt mạch trên mặt đất để cát không rơi</span>`);
     $('warns').innerHTML = w.join(' ');
-    $('layer2Btn').classList.toggle('hidden', !top);
-    if (!top && layer === '2') setLayer('all');
+    const ls = $('layerSel'); const prev = ls.value;
+    ls.innerHTML = '<option value="all">Nhìn từ trên</option>' + Array.from({ length: lay.size.y }, (_, y) => `<option value="${y}">Lớp y=${y}</option>`).join('');
+    ls.value = [...ls.options].some((o) => o.value === prev) ? prev : 'all'; layer = ls.value;
     renderMats();
     draw();
+    update3d();
   }
 
   function renderMats() {
     const m = result.lay.mats;
     const label = {
-      note_block: 'Note block', repeater: 'Bộ lặp (repeater)', redstone_wire: 'Bột redstone', stone_button: 'Nút đá',
+      note_block: 'Note block', repeater: 'Bộ lặp (repeater)', redstone_torch: 'Đuốc redstone', redstone_wire: 'Bột redstone', stone_button: 'Nút đá',
       smooth_stone: 'Đá nhẵn (nền)', stone_bricks: 'Gạch đá (khối dẫn)',
     };
     const instOf = {}; ORDER.forEach((k) => { instOf[INST[k].block.replace('minecraft:', '')] = INST[k].vi; });
@@ -327,8 +360,7 @@
 
   // ------------------------------------------------ preview
   let layer = 'all';
-  function setLayer(l) { layer = l; document.querySelectorAll('#layerSeg button').forEach((b) => b.classList.toggle('on', b.dataset.l === l)); draw(); }
-  $('layerSeg').onclick = (e) => { if (e.target.dataset.l) setLayer(e.target.dataset.l); };
+  $('layerSel').onchange = () => { layer = $('layerSel').value; draw(); };
   $('zoom').oninput = draw;
   const blockColor = (name) => {
     for (const k of ORDER) if (INST[k].block === name) return INST[k].color;
@@ -351,14 +383,14 @@
     for (let z = 0; z < lay.size.z; z++) for (let x = 0; x < lay.size.x; x++) {
       const px = x * cs, pz = z * cs;
       let b, y;
-      if (layer === 'all') { for (y = 2; y >= 0; y--) { b = get(x, y, z); if (b) break; } }
+      if (layer === 'all') { for (y = lay.size.y - 1; y >= 0; y--) { b = get(x, y, z); if (b) break; } }
       else { y = +layer; b = get(x, y, z); }
       if (!b) continue;
       const nm = b.name;
       if (nm === 'minecraft:note_block') {
         const ins = b.props.instrument; used.add(ins);
         ctx.fillStyle = INST[ins].color; ctx.fillRect(px + 1, pz + 1, cs - 2, cs - 2);
-        if (y === 2) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, cs / 10); ctx.strokeRect(px + 1.5, pz + 1.5, cs - 3, cs - 3); }
+        if (layer === 'all' && y % 4 === 2) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, cs / 10); ctx.strokeRect(px + 1.5, pz + 1.5, cs - 3, cs - 3); }
         if (cs >= 11) { ctx.fillStyle = ['hat', 'chime', 'iron_xylophone', 'xylophone', 'guitar', 'snare', 'pling', 'bell'].includes(ins) ? '#111' : '#fff'; ctx.fillText(b.props.note, px + cs / 2, pz + cs / 2 + 0.5); }
       } else if (nm === 'minecraft:repeater') {
         ctx.fillStyle = '#5a2b27'; ctx.fillRect(px, pz, cs, cs);
@@ -382,6 +414,9 @@
         if (b.props.west === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(px, cz); }
         if (b.props.east === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(px + cs, cz); }
         ctx.stroke();
+      } else if (nm === 'minecraft:redstone_torch') {
+        ctx.fillStyle = '#2a1a14'; ctx.fillRect(px, pz, cs, cs);
+        ctx.fillStyle = b.props.lit === 'true' ? '#ff6a2e' : '#7a2a1c'; ctx.beginPath(); ctx.arc(px + cs / 2, pz + cs / 2, cs * 0.28, 0, 7); ctx.fill();
       } else if (nm === 'minecraft:stone_button') {
         ctx.fillStyle = '#5c606a'; ctx.fillRect(px, pz, cs, cs);
         ctx.strokeStyle = '#5fcf65'; ctx.lineWidth = Math.max(2, cs / 5); ctx.strokeRect(px + 1, pz + 1, cs - 2, cs - 2);
@@ -404,7 +439,7 @@
     const cs = cv.width / result.lay.size.x;
     const x = Math.floor((e.clientX - r.left) * (cv.width / r.width) / cs), z = Math.floor((e.clientY - r.top) * (cv.height / r.height) / cs);
     const lines = [`x=${x}  z=${z}`];
-    for (let y = 2; y >= 0; y--) {
+    for (let y = result.lay.size.y - 1; y >= 0; y--) {
       const b = result.lay.cells.get(x + ',' + y + ',' + z); if (!b) continue;
       let t = `y=${y}: ` + b.name.replace('minecraft:', '');
       if (b.name === 'minecraft:note_block') { const I = INST[b.props.instrument]; t = `y=${y}: note block · ${I.vi} · bấm ${b.props.note} lần${I.perc ? '' : ' (' + noteName(I.low + +b.props.note) + ')'}`; }
@@ -517,12 +552,13 @@
     const comp = actx.createDynamicsCompressor(); comp.connect(master);
     const t0 = actx.currentTime + 0.15;
     const { slots, lay } = result;
-    const total = slots[slots.length - 1].rt / 10 + 1;
+    const total = (slots[slots.length - 1].rt + (lay.stretchTicks || 0)) / 10 + 1;
     let next = 0;
     const sched = () => {
       const now = actx.currentTime;
-      while (next < slots.length && t0 + slots[next].rt / 10 < now + 0.6) {
-        const tt = t0 + slots[next].rt / 10;
+      const shf = lay.shifts || [];
+      while (next < slots.length && t0 + (slots[next].rt + (shf[next] || 0)) / 10 < now + 0.6) {
+        const tt = t0 + (slots[next].rt + (shf[next] || 0)) / 10;
         for (const ln of lay.assigned[next].lanes) for (const nt of [ln.top, ln.a, ln.b]) if (nt) voice(nt.inst, nt.click, tt, comp);
         next++;
       }
@@ -536,6 +572,8 @@
     $('play').textContent = '⏹ Dừng';
     sched();
   };
+
+/*V3D*/
 })();
 </script>
 </body>
