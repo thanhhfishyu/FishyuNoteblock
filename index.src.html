@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Note Block Song Builder – MIDI/NBS → Litematica</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --panel2: #252932; --line: #333845; --text: #e8eaed; --muted: #9aa0ab;
+    --acc: #5fcf65; --acc2: #3a9b40; --warn: #f2b84b; --bad: #ef6b5e; --red: #d33b2c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 22px 20px 10px; max-width: 1180px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 24px; letter-spacing: .2px; }
+  header h1 span { color: var(--acc); }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 20px 40px; display: grid; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+  .step { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--acc2); color: #fff; font-size: 13px; font-weight: 700; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  #drop { border: 2px dashed #4a5060; border-radius: 10px; padding: 26px; text-align: center; cursor: pointer; transition: .15s; }
+  #drop.over, #drop:hover { border-color: var(--acc); background: #1f2a20; }
+  #drop b { color: var(--acc); }
+  input[type=file] { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  label.f > span { color: var(--muted); }
+  select, input[type=number], input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 14px; }
+  input[type=number] { width: 84px; }
+  input[type=range] { accent-color: var(--acc); }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+  button:hover { border-color: #59606f; }
+  button.pri { background: var(--acc2); border-color: var(--acc2); color: #fff; font-weight: 600; }
+  button.pri:hover { background: #45ad4b; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 12.5px; }
+  td .sub { color: var(--muted); font-size: 12px; }
+  .oct { display: inline-flex; align-items: center; gap: 4px; }
+  .oct button { padding: 2px 8px; }
+  .oct span { min-width: 26px; text-align: center; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 12px; background: #2d3340; color: var(--muted); }
+  .badge.warn { background: #3d3220; color: var(--warn); }
+  .badge.ok { background: #1f3622; color: var(--acc); }
+  .badge.bad { background: #3d2220; color: var(--bad); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; }
+  .stat { background: var(--panel2); border-radius: 9px; padding: 10px 12px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 19px; font-weight: 650; margin-top: 2px; }
+  .stat .v.small { font-size: 15px; }
+  #viewWrap { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: 8px; background: #0f1114; margin-top: 10px; position: relative; }
+  canvas { display: block; image-rendering: pixelated; }
+  #tip { position: fixed; pointer-events: none; background: #000d; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; font-size: 12.5px; display: none; z-index: 10; white-space: pre; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid #0006; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 6px 11px; background: transparent; }
+  .seg button.on { background: var(--acc2); color: #fff; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .two { grid-template-columns: 1fr; } .hide-m { display: none; } }
+  .help li { margin: 4px 0; }
+  .help code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; background: #262a33; padding: 1px 5px; border-radius: 4px; }
+  #status { margin-top: 8px; font-size: 13.5px; }
+  .hidden { display: none !important; }
+  .progress { height: 6px; background: #2a2e37; border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .progress div { height: 100%; width: 0; background: var(--acc); }
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; padding: 10px 20px 30px; }
+  a { color: var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Note Block <span>Song Builder</span></h1>
+  <p>Biến file MIDI hoặc NBS thành mạch note block + redstone, xuất ra <b>.litematic</b> (Litematica) và <b>.schem</b> (WorldEdit). Mọi thứ chạy ngay trong trình duyệt, file của bạn không được tải lên đâu cả.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="step">1</span> Chọn bài nhạc</h2>
+    <div id="drop">
+      <div>Kéo thả file vào đây hoặc <b>bấm để chọn</b></div>
+      <div class="muted small" style="margin-top:4px">Hỗ trợ <span class="mono">.mid</span> <span class="mono">.midi</span> <span class="mono">.nbs</span> (Open Note Block Studio)</div>
+    </div>
+    <input id="file" type="file" accept=".mid,.midi,.rmi,.nbs">
+    <div id="status" class="muted"></div>
+  </section>
+
+  <section class="card hidden" id="balanceCard">
+    <h2><span class="step">2</span> Cân bằng nốt & nhạc cụ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Tốc độ bài (%)</span>
+        <span class="row" style="gap:8px"><input type="range" id="tempo" min="25" max="200" step="1" value="100"><input type="number" id="tempoN" min="25" max="200" value="100"></span>
+      </label>
+      <label class="f"><span>Dịch tông (nửa cung)</span><input type="number" id="transpose" min="-24" max="24" value="0"></label>
+      <button id="autoBal" title="Tính lại quãng tám tốt nhất cho từng track">Tự cân bằng lại</button>
+    </div>
+    <div class="muted small" style="margin-bottom:8px">Minecraft chơi theo nhịp 0,1 giây, mỗi nhạc cụ chỉ có 2 quãng tám. App tự chọn nhạc cụ, quãng tám và khối đặt dưới note block; bạn có thể chỉnh từng track bên dưới.</div>
+    <div style="overflow-x:auto"><table id="parts"></table></div>
+  </section>
+
+  <section class="card hidden" id="layoutCard">
+    <h2><span class="step">3</span> Kích thước & kiểu mạch</h2>
+    <div class="row">
+      <label class="f"><span>Số làn song song</span>
+        <select id="lanes"><option value="auto">Tự động</option><option value="1">1 làn (tối đa 3 nốt cùng lúc)</option><option value="2">2 làn (tối đa 6 nốt)</option><option value="3">3 làn (tối đa 9 nốt)</option></select>
+      </label>
+      <label class="f"><span>Note block phía trên</span>
+        <select id="top"><option value="1">Có (cao 3 khối, chứa nhiều nốt hơn)</option><option value="0">Không (cao 2 khối)</option></select>
+      </label>
+      <label class="f"><span>Kiểu xếp</span>
+        <select id="mode"><option value="square">Gập rắn, gọn gần vuông</option><option value="limit">Gập rắn, giới hạn dài × rộng</option><option value="line">Một hàng thẳng</option></select>
+      </label>
+      <label class="f limitOnly"><span>Dài tối đa (X)</span><input type="number" id="maxX" min="16" value="64"></label>
+      <label class="f limitOnly"><span>Rộng tối đa (Z)</span><input type="number" id="maxZ" min="3" value="64"></label>
+      <label class="f"><span>Phiên bản Minecraft (Java)</span>
+        <select id="ver"></select>
+      </label>
+    </div>
+  </section>
+
+  <section class="card hidden" id="resultCard">
+    <h2><span class="step">4</span> Kết quả</h2>
+    <div class="stats" id="stats"></div>
+    <div id="warns" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="play">▶ Nghe thử</button>
+      <button class="pri" id="dlLite">⬇ Tải .litematic</button>
+      <button id="dlSchem">⬇ Tải .schem (WorldEdit)</button>
+      <span class="muted small" id="playInfo"></span>
+    </div>
+    <div class="muted small hidden" id="zipNote" style="margin-top:8px">Trên trang Claude, file được tải về dạng <b>.zip</b>: giải nén ra để lấy file <span class="mono">.litematic</span> / <span class="mono">.schem</span>. Bản trên GitHub Pages thì tải thẳng.</div>
+    <div class="progress"><div id="prog"></div></div>
+
+    <div class="row" style="margin-top:18px; justify-content: space-between">
+      <div class="seg" id="layerSeg">
+        <button data-l="all" class="on">Nhìn từ trên</button>
+        <button data-l="0">Lớp y=0</button>
+        <button data-l="1">Lớp y=1</button>
+        <button data-l="2" id="layer2Btn">Lớp y=2</button>
+      </div>
+      <label class="row small muted" style="gap:8px">Thu phóng <input type="range" id="zoom" min="4" max="28" value="14"></label>
+    </div>
+    <div id="viewWrap"><canvas id="cv"></canvas></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="two hidden" id="infoRow">
+    <div class="card">
+      <h2>Vật liệu cần</h2>
+      <table id="mats"></table>
+    </div>
+    <div class="card help">
+      <h2>Cách dùng trong game</h2>
+      <ol>
+        <li>Chép file <span class="mono">.litematic</span> vào thư mục <span class="mono">.minecraft/schematics</span>, mở menu Litematica (phím <b>M</b>) → <i>Load Schematics</i> → chọn bài → <i>Load</i>.</li>
+        <li>Đặt sát mặt đất bằng phẳng: khối cát (trống snare) cần có khối đỡ bên dưới, không thì sẽ rơi.</li>
+        <li>Phía trên mọi note block phải là <b>không khí</b>, nên đừng đặt mạch sát trần.</li>
+        <li>Chơi creative thì dán thẳng (paste). Chơi survival thì xây theo hình mờ: số trên mỗi note block là <b>số lần bấm chuột phải</b> để chỉnh nốt.</li>
+        <li>Bấm <b>nút đá</b> ở đầu mạch (ô viền xanh lá trong hình xem trước) để phát nhạc.</li>
+        <li>Dùng WorldEdit thì lấy file <span class="mono">.schem</span>: <span class="mono">//schem load tên</span> rồi <span class="mono">//paste</span>.</li>
+      </ol>
+      <p class="muted small">Muốn dùng phần cân bằng của Note Block Studio: cân bằng xong trong NBS thì <b>lưu file .nbs</b> (Save song) rồi thả vào đây, đừng dùng Export schematic của NBS.</p>
+    </div>
+  </section>
+</main>
+<div id="tip"></div>
+<footer>Note Block Song Builder · mã nguồn mở · mạch được kiểm tra bằng mô phỏng redstone trước khi xuất file</footer>
+
+<script>
+/*CORE*/
+</script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const INST = NB.INST, ORDER = NB.INST_ORDER;
+  const VERSIONS = [
+    ['1.21.9 – 1.21.10', 4556], ['1.21.6 – 1.21.8', 4440], ['1.21.5', 4325], ['1.21.4', 4189], ['1.21.2 – 1.21.3', 4082],
+    ['1.21 – 1.21.1', 3955], ['1.20.5 – 1.20.6', 3839], ['1.20.3 – 1.20.4', 3700], ['1.20 – 1.20.2', 3465],
+  ];
+  $('ver').innerHTML = '<option value="4556">Mới hơn 1.21.10 (26.x…)</option>' + VERSIONS.map(([n, d]) => `<option value="${d}">${n}</option>`).join('');
+  $('ver').value = '3955';
+
+  let song = null, fileName = 'song', result = null;
+  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const noteName = (m) => NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // ------------------------------------------------ file loading
+  const drop = $('drop');
+  drop.onclick = () => $('file').click();
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); };
+  $('file').onchange = (e) => { if (e.target.files[0]) load(e.target.files[0]); };
+
+  async function load(f) {
+    stop();
+    const buf = await f.arrayBuffer();
+    try {
+      song = /\.nbs$/i.test(f.name) ? NB.parseNbs(buf) : NB.parseMidi(buf);
+    } catch (err) {
+      $('status').innerHTML = `<span style="color:var(--bad)">Không đọc được file: ${esc(err.message)}</span>`;
+      return;
+    }
+    fileName = f.name.replace(/\.[^.]+$/, '').replace(/[^\w\-. ]+/g, '_') || 'song';
+    const n = song.parts.reduce((a, p) => a + p.notes.length, 0);
+    if (!n) { $('status').innerHTML = '<span style="color:var(--bad)">File không có nốt nhạc nào.</span>'; return; }
+    $('status').innerHTML = `Đã mở <b>${esc(f.name)}</b>: ${song.parts.length} track, ${n} nốt${song.kind === 'nbs' ? `, tempo NBS ${song.tempo} tick/giây` : ''}.`;
+    ['balanceCard', 'layoutCard', 'resultCard', 'infoRow'].forEach((id) => $(id).classList.remove('hidden'));
+    renderParts();
+    recompute();
+  }
+
+  // ------------------------------------------------ parts table
+  function instOptions(sel, kind, isDrum) {
+    let h = '';
+    if (kind === 'nbs') h += `<option value="file"${sel === 'file' ? ' selected' : ''}>Giữ như file NBS</option>`;
+    if (isDrum) h += `<option value="auto"${sel === 'auto' ? ' selected' : ''}>Bộ trống tự động</option>`;
+    for (const k of ORDER) h += `<option value="${k}"${sel === k ? ' selected' : ''}>${INST[k].vi} · ${INST[k].block.replace('minecraft:', '')}</option>`;
+    return h;
+  }
+  function renderParts() {
+    const midi = song.kind === 'midi';
+    let h = `<tr><th></th><th>Track</th><th class="hide-m">Số nốt</th><th>Nhạc cụ · khối bên dưới</th><th>Quãng tám</th>${midi ? '<th>Nốt vượt quãng</th>' : ''}</tr>`;
+    song.parts.forEach((p, i) => {
+      const oob = NB.outOfRangeCount(p);
+      const showOct = !(midi && p.isDrum && p.instrument === 'auto');
+      h += `<tr data-i="${i}">
+        <td><input type="checkbox" class="en" ${p.enabled ? 'checked' : ''}></td>
+        <td><div>${esc(p.name)}</div><div class="sub">${esc(p.sub)}</div></td>
+        <td class="hide-m">${p.notes.length}</td>
+        <td><select class="ins">${instOptions(p.instrument, p.kind, p.isDrum)}</select></td>
+        <td>${showOct ? `<span class="oct"><button class="om">−</button><span>${p.octave > 0 ? '+' : ''}${p.octave}</span><button class="op">+</button></span>` : '<span class="muted small">—</span>'}
+            ${midi && showOct ? (oob ? ` <span class="badge warn">${oob} nốt ngoài quãng</span>` : ' <span class="badge ok">vừa quãng</span>') : ''}</td>
+        ${midi ? `<td>${p.isDrum && p.instrument === 'auto' ? '<span class="muted small">—</span>' : `<select class="rng"><option value="swap"${p.rangeMode === 'swap' ? ' selected' : ''}>Đổi nhạc cụ (đúng cao độ)</option><option value="fold"${p.rangeMode === 'fold' ? ' selected' : ''}>Gập quãng tám (giữ tiếng)</option></select>`}</td>` : ''}
+      </tr>`;
+    });
+    $('parts').innerHTML = h;
+  }
+  $('parts').addEventListener('change', (e) => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    const p = song.parts[+tr.dataset.i];
+    if (e.target.classList.contains('en')) p.enabled = e.target.checked;
+    if (e.target.classList.contains('ins')) { p.instrument = e.target.value; if (p.kind === 'midi' && INST[p.instrument]) p.octave = NB.bestOctave(p, p.instrument); renderParts(); }
+    if (e.target.classList.contains('rng')) p.rangeMode = e.target.value;
+    recompute();
+  });
+  $('parts').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    const p = song.parts[+tr.dataset.i];
+    if (e.target.classList.contains('om')) { p.octave = Math.max(-5, p.octave - 1); renderParts(); recompute(); }
+    if (e.target.classList.contains('op')) { p.octave = Math.min(5, p.octave + 1); renderParts(); recompute(); }
+  });
+  $('autoBal').onclick = () => { song.parts.forEach((p) => { if (p.kind === 'midi' && INST[p.instrument]) p.octave = NB.bestOctave(p, p.instrument); else p.octave = 0; }); renderParts(); recompute(); };
+
+  $('tempo').oninput = () => { $('tempoN').value = $('tempo').value; recompute(); };
+  $('tempoN').onchange = () => { $('tempo').value = $('tempoN').value; recompute(); };
+  ['transpose', 'lanes', 'top', 'mode', 'maxX', 'maxZ', 'ver'].forEach((id) => { $(id).onchange = recompute; });
+  const syncMode = () => document.querySelectorAll('.limitOnly').forEach((el) => el.classList.toggle('hidden', $('mode').value !== 'limit'));
+  $('mode').addEventListener('change', syncMode); syncMode();
+
+  // ------------------------------------------------ compute
+  let timer = null;
+  function recompute() { clearTimeout(timer); timer = setTimeout(compute, 150); }
+  function compute() {
+    if (!song) return;
+    stop();
+    const tempo = Math.max(10, Math.min(400, +$('tempoN').value || 100));
+    const { slots, folded, swapped, totalNotes } = NB.buildSlots(song, { tempo, transpose: +$('transpose').value || 0 });
+    if (!slots.length) { $('stats').innerHTML = '<div class="muted">Chưa có nốt nào được bật.</div>'; result = null; draw(); return; }
+    const top = $('top').value === '1';
+    let lanes = $('lanes').value;
+    let need = 1;
+    slots.forEach((s) => { need = Math.max(need, NB.lanesNeeded(s.notes, top)); });
+    if (lanes === 'auto') lanes = Math.min(3, need); else lanes = +lanes;
+    const opts = { lanes, top, mode: $('mode').value, maxX: $('mode').value === 'limit' ? +$('maxX').value : 0, maxZ: $('mode').value === 'limit' ? +$('maxZ').value : 0 };
+    const lay = NB.autoLayout(slots, opts);
+    if (!lay) {
+      $('stats').innerHTML = '';
+      $('warns').innerHTML = `<div class="badge bad">Không xếp được mạch với chiều dài này. Hãy tăng "Dài tối đa" lên.</div>`;
+      result = null; draw(); return;
+    }
+    const v = NB.verify(lay, slots);
+    result = { slots, lay, v, folded, swapped, totalNotes, need, tempo };
+    const dur = slots[slots.length - 1].rt / 10;
+    const nb = lay.notePos.length;
+    const stat = (k, val, cls = '') => `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${val}</div></div>`;
+    $('stats').innerHTML =
+      stat('Kích thước (X × Y × Z)', `${lay.size.x} × ${lay.size.y} × ${lay.size.z}`) +
+      stat('Thời lượng', `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, '0')}`) +
+      stat('Note block', nb) +
+      stat('Số hàng · số làn', `${lay.rows} · ${lay.lanes}`) +
+      stat('Nốt bị lược (quá dày)', lay.dropped, 'small') +
+      stat('Kiểm tra mạch', v.ok ? '<span style="color:var(--acc)">✓ Đúng nhịp</span>' : '<span style="color:var(--bad)">✗ Lỗi</span>', 'small');
+    const w = [];
+    if (lay.dropped) w.push(`<span class="badge warn">${lay.dropped} nốt bị lược vì có hơn ${lay.lanes * (top ? 3 : 2)} nốt kêu cùng lúc. Bài này cần ${need} làn${need > 3 ? ' (tối đa 3)' : ''}; giữ lại nốt cao nhất, thấp nhất và trống chính.</span>`);
+    if (folded) w.push(`<span class="badge">${folded} nốt được gập quãng tám cho vừa note block</span>`);
+    if (swapped) w.push(`<span class="badge">${swapped} nốt được đổi nhạc cụ để giữ đúng cao độ</span>`);
+    if (lay.fitsZ === false) w.push(`<span class="badge warn">Chiều rộng ${lay.size.z} vượt giới hạn ${opts.maxZ}. Hãy tăng chiều dài hoặc chiều rộng.</span>`);
+    if (!v.ok) w.push(`<span class="badge bad">Mô phỏng phát hiện lỗi mạch, đừng dùng file này và báo lại cho mình nhé.</span>`);
+    if (lay.mats.sand) w.push(`<span class="badge">Có ${lay.mats.sand} khối cát: đặt mạch trên mặt đất để cát không rơi</span>`);
+    $('warns').innerHTML = w.join(' ');
+    $('layer2Btn').classList.toggle('hidden', !top);
+    if (!top && layer === '2') setLayer('all');
+    renderMats();
+    draw();
+  }
+
+  function renderMats() {
+    const m = result.lay.mats;
+    const label = {
+      note_block: 'Note block', repeater: 'Bộ lặp (repeater)', redstone_wire: 'Bột redstone', stone_button: 'Nút đá',
+      smooth_stone: 'Đá nhẵn (nền)', stone_bricks: 'Gạch đá (khối dẫn)',
+    };
+    const instOf = {}; ORDER.forEach((k) => { instOf[INST[k].block.replace('minecraft:', '')] = INST[k].vi; });
+    const rows = Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+      const st = n >= 64 ? ` <span class="muted small">(${Math.floor(n / 64)} stack${n % 64 ? ' + ' + (n % 64) : ''})</span>` : '';
+      return `<tr><td>${label[k] || k}${instOf[k] ? ` <span class="muted small">→ ${instOf[k]}</span>` : ''}</td><td style="text-align:right">${n}${st}</td></tr>`;
+    });
+    $('mats').innerHTML = rows.join('');
+  }
+
+  // ------------------------------------------------ preview
+  let layer = 'all';
+  function setLayer(l) { layer = l; document.querySelectorAll('#layerSeg button').forEach((b) => b.classList.toggle('on', b.dataset.l === l)); draw(); }
+  $('layerSeg').onclick = (e) => { if (e.target.dataset.l) setLayer(e.target.dataset.l); };
+  $('zoom').oninput = draw;
+  const blockColor = (name) => {
+    for (const k of ORDER) if (INST[k].block === name) return INST[k].color;
+    if (name === NB.FLOOR) return '#3b3f47';
+    if (name === NB.LINE) return '#5c606a';
+    return '#777';
+  };
+  function draw() {
+    const cv = $('cv'), ctx = cv.getContext('2d');
+    if (!result) { cv.width = cv.height = 1; $('legend').innerHTML = ''; return; }
+    const { lay } = result;
+    let cs = +$('zoom').value;
+    while ((lay.size.x * cs > 16000 || lay.size.z * cs > 16000) && cs > 2) cs--;
+    cv.width = lay.size.x * cs; cv.height = lay.size.z * cs;
+    ctx.fillStyle = '#0f1114'; ctx.fillRect(0, 0, cv.width, cv.height);
+    const get = (x, y, z) => lay.cells.get(x + ',' + y + ',' + z);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `bold ${Math.max(7, Math.floor(cs * 0.62))}px system-ui`;
+    const used = new Set();
+    for (let z = 0; z < lay.size.z; z++) for (let x = 0; x < lay.size.x; x++) {
+      const px = x * cs, pz = z * cs;
+      let b, y;
+      if (layer === 'all') { for (y = 2; y >= 0; y--) { b = get(x, y, z); if (b) break; } }
+      else { y = +layer; b = get(x, y, z); }
+      if (!b) continue;
+      const nm = b.name;
+      if (nm === 'minecraft:note_block') {
+        const ins = b.props.instrument; used.add(ins);
+        ctx.fillStyle = INST[ins].color; ctx.fillRect(px + 1, pz + 1, cs - 2, cs - 2);
+        if (y === 2) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, cs / 10); ctx.strokeRect(px + 1.5, pz + 1.5, cs - 3, cs - 3); }
+        if (cs >= 11) { ctx.fillStyle = ['hat', 'chime', 'iron_xylophone', 'xylophone', 'guitar', 'snare', 'pling', 'bell'].includes(ins) ? '#111' : '#fff'; ctx.fillText(b.props.note, px + cs / 2, pz + cs / 2 + 0.5); }
+      } else if (nm === 'minecraft:repeater') {
+        ctx.fillStyle = '#5a2b27'; ctx.fillRect(px, pz, cs, cs);
+        const f = b.props.facing; const d = +b.props.delay;
+        const dx = f === 'west' ? 1 : f === 'east' ? -1 : 0, dz = f === 'north' ? 1 : f === 'south' ? -1 : 0;
+        ctx.fillStyle = '#ff4a3a';
+        const cx = px + cs / 2, cz = pz + cs / 2, r = cs * 0.38;
+        ctx.beginPath();
+        ctx.moveTo(cx + dx * r, cz + dz * r);
+        ctx.lineTo(cx - dx * r * 0.6 - dz * r * 0.7, cz - dz * r * 0.6 + dx * r * 0.7);
+        ctx.lineTo(cx - dx * r * 0.6 + dz * r * 0.7, cz - dz * r * 0.6 - dx * r * 0.7);
+        ctx.fill();
+        if (cs >= 13 && d > 1) { ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.floor(cs * 0.45)}px system-ui`; ctx.fillText(d, cx, cz); ctx.font = `bold ${Math.max(7, Math.floor(cs * 0.62))}px system-ui`; }
+      } else if (nm === 'minecraft:redstone_wire') {
+        ctx.fillStyle = '#1d1416'; ctx.fillRect(px, pz, cs, cs);
+        ctx.strokeStyle = '#c22a1e'; ctx.lineWidth = Math.max(1.5, cs / 4);
+        const cx = px + cs / 2, cz = pz + cs / 2;
+        ctx.beginPath();
+        if (b.props.north === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(cx, pz); }
+        if (b.props.south === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(cx, pz + cs); }
+        if (b.props.west === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(px, cz); }
+        if (b.props.east === 'side') { ctx.moveTo(cx, cz); ctx.lineTo(px + cs, cz); }
+        ctx.stroke();
+      } else if (nm === 'minecraft:stone_button') {
+        ctx.fillStyle = '#5c606a'; ctx.fillRect(px, pz, cs, cs);
+        ctx.strokeStyle = '#5fcf65'; ctx.lineWidth = Math.max(2, cs / 5); ctx.strokeRect(px + 1, pz + 1, cs - 2, cs - 2);
+      } else {
+        ctx.fillStyle = blockColor(nm); ctx.fillRect(px, pz, cs, cs);
+        if (lay.start && x === lay.start.x && z === lay.start.z && y === 1) { ctx.strokeStyle = '#5fcf65'; ctx.lineWidth = Math.max(2, cs / 5); ctx.strokeRect(px + 1, pz + 1, cs - 2, cs - 2); }
+      }
+      if (cs >= 8) { ctx.strokeStyle = '#0005'; ctx.lineWidth = 1; ctx.strokeRect(px + .5, pz + .5, cs - 1, cs - 1); }
+    }
+    $('legend').innerHTML = [...used].map((k) => `<span><i style="background:${INST[k].color}"></i>${INST[k].vi} · ${INST[k].block.replace('minecraft:', '')}</span>`).join('') +
+      `<span><i style="background:#5a2b27"></i>Repeater (số = độ trễ)</span><span><i style="background:#c22a1e"></i>Bột redstone</span><span><i style="background:#5c606a;border-color:#5fcf65"></i>Nút bấm bắt đầu</span>` +
+      (layer === 'all' ? '<span class="muted">Ô viền trắng = note block ở tầng trên (y=2)</span>' : '');
+  }
+
+  // tooltip
+  const tip = $('tip');
+  $('cv').addEventListener('mousemove', (e) => {
+    if (!result) return;
+    const cv = $('cv'); const r = cv.getBoundingClientRect();
+    const cs = cv.width / result.lay.size.x;
+    const x = Math.floor((e.clientX - r.left) * (cv.width / r.width) / cs), z = Math.floor((e.clientY - r.top) * (cv.height / r.height) / cs);
+    const lines = [`x=${x}  z=${z}`];
+    for (let y = 2; y >= 0; y--) {
+      const b = result.lay.cells.get(x + ',' + y + ',' + z); if (!b) continue;
+      let t = `y=${y}: ` + b.name.replace('minecraft:', '');
+      if (b.name === 'minecraft:note_block') { const I = INST[b.props.instrument]; t = `y=${y}: note block · ${I.vi} · bấm ${b.props.note} lần${I.perc ? '' : ' (' + noteName(I.low + +b.props.note) + ')'}`; }
+      if (b.name === 'minecraft:repeater') t += ` · trễ ${b.props.delay}`;
+      lines.push(t);
+    }
+    if (lines.length === 1) { tip.style.display = 'none'; return; }
+    tip.textContent = lines.join('\n'); tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+  });
+  $('cv').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+  // ------------------------------------------------ downloads
+  async function gzip(u8) {
+    const cs = new CompressionStream('gzip');
+    const stream = new Blob([u8]).stream().pipeThrough(cs);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  // Inside claude.ai the page is sandboxed: files go through the downloads capability, wrapped in a .zip.
+  let dlCap = null;
+  try { if (window.claude && window.claude.use) window.claude.use('downloads').then((d) => { dlCap = d; if (d) $('zipNote').classList.remove('hidden'); }).catch(() => {}); } catch (e) { /* ignore */ }
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u8) { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+  function makeZip(files) {
+    const parts = [], central = []; let off = 0;
+    for (const f of files) {
+      const name = new TextEncoder().encode(f.name), d = f.data, crc = crc32(d);
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint32(14, crc, true); h.setUint32(18, d.length, true); h.setUint32(22, d.length, true); h.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(h.buffer), name, d);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+      c.setUint32(16, crc, true); c.setUint32(20, d.length, true); c.setUint32(24, d.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      central.push(new Uint8Array(c.buffer), name);
+      off += 30 + name.length + d.length;
+    }
+    const csize = central.reduce((a, b) => a + b.length, 0);
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...central, new Uint8Array(e.buffer)]);
+  }
+  async function download(kind) {
+    if (!result) return;
+    const meta = { dataVersion: +$('ver').value, name: (song.title || fileName).slice(0, 60), author: 'Note Block Song Builder', description: `Từ ${fileName}. Bấm nút đá ở đầu mạch để phát.` };
+    const raw = kind === 'lite' ? NB.toLitematic(result.lay, meta) : NB.toSchem(result.lay, meta);
+    const gz = await gzip(raw);
+    const fname = fileName + (kind === 'lite' ? '.litematic' : '.schem');
+    if (dlCap) {
+      try { await dlCap.save({ filename: fname + '.zip', data: makeZip([{ name: fname, data: gz }]) }); }
+      catch (err) { if (err && err.code !== 'declined') $('playInfo').textContent = 'Không tải được file: ' + (err.message || err.code); }
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([gz], { type: 'application/octet-stream' }));
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  $('dlLite').onclick = () => download('lite');
+  $('dlSchem').onclick = () => download('schem');
+
+  // ------------------------------------------------ audio preview
+  let actx = null, playing = null;
+  function noiseBuf() {
+    const b = actx.createBuffer(1, actx.sampleRate * 0.5, actx.sampleRate);
+    const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  let NOISE = null;
+  function voice(inst, click, t, out) {
+    const I = INST[inst];
+    const g = actx.createGain(); g.connect(out);
+    if (inst === 'basedrum') {
+      const o = actx.createOscillator(); o.type = 'sine';
+      const f0 = 55 * Math.pow(2, click / 24);
+      o.frequency.setValueAtTime(f0 * 2.4, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.08);
+      g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      o.connect(g); o.start(t); o.stop(t + 0.3); return;
+    }
+    if (inst === 'snare' || inst === 'hat') {
+      const s = actx.createBufferSource(); s.buffer = NOISE;
+      const f = actx.createBiquadFilter(); f.type = inst === 'hat' ? 'highpass' : 'bandpass';
+      f.frequency.value = (inst === 'hat' ? 5000 : 1800) * Math.pow(2, (click - 12) / 24);
+      const len = inst === 'hat' ? 0.05 : 0.14;
+      g.gain.setValueAtTime(inst === 'hat' ? 0.35 : 0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      s.connect(f); f.connect(g); s.start(t); s.stop(t + len + 0.02); return;
+    }
+    const freq = 440 * Math.pow(2, (I.low + click - 69) / 12);
+    const type = { harp: 'triangle', bass: 'triangle', guitar: 'sawtooth', flute: 'sine', bell: 'sine', chime: 'sine', xylophone: 'sine', iron_xylophone: 'square', cow_bell: 'square', didgeridoo: 'sawtooth', bit: 'square', banjo: 'sawtooth', pling: 'triangle' }[inst] || 'triangle';
+    const dec = { bell: 1.2, chime: 1.4, pling: 0.9, flute: 0.5, xylophone: 0.25, banjo: 0.3, bit: 0.35, cow_bell: 0.25, iron_xylophone: 0.4 }[inst] || 0.6;
+    const vol = { square: 0.12, sawtooth: 0.13, triangle: 0.32, sine: 0.35 }[type];
+    const o = actx.createOscillator(); o.type = type; o.frequency.value = freq;
+    let node = o;
+    if (type === 'sawtooth' || type === 'square') { const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.min(6000, freq * 6); o.connect(f); node = f; }
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.005); g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+    node.connect(g); o.start(t); o.stop(t + dec + 0.05);
+  }
+  function stop() {
+    if (playing) { playing.master.disconnect(); cancelAnimationFrame(playing.raf); playing = null; }
+    $('play').textContent = '▶ Nghe thử'; $('prog').style.width = '0'; $('playInfo').textContent = '';
+  }
+  $('play').onclick = () => {
+    if (playing) { stop(); return; }
+    if (!result) return;
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    actx.resume();
+    NOISE = NOISE || noiseBuf();
+    const master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination);
+    const comp = actx.createDynamicsCompressor(); comp.connect(master);
+    const t0 = actx.currentTime + 0.15;
+    const { slots, lay } = result;
+    const total = slots[slots.length - 1].rt / 10 + 1;
+    let next = 0;
+    const sched = () => {
+      const now = actx.currentTime;
+      while (next < slots.length && t0 + slots[next].rt / 10 < now + 0.6) {
+        const tt = t0 + slots[next].rt / 10;
+        for (const ln of lay.assigned[next].lanes) for (const nt of [ln.top, ln.a, ln.b]) if (nt) voice(nt.inst, nt.click, tt, comp);
+        next++;
+      }
+      const el = Math.max(0, now - t0);
+      $('prog').style.width = Math.min(100, el / total * 100) + '%';
+      $('playInfo').textContent = `${el.toFixed(1)} / ${total.toFixed(1)} giây`;
+      if (el > total) { stop(); return; }
+      playing.raf = requestAnimationFrame(sched);
+    };
+    playing = { master, raf: 0 };
+    $('play').textContent = '⏹ Dừng';
+    sched();
+  };
+})();
+</script>
+</body>
+</html>
